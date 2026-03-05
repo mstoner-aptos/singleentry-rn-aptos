@@ -1,9 +1,8 @@
-// Configures the React Native Gradle Settings plugin used for autolinking
 pluginManagement { includeBuild("../node_modules/@react-native/gradle-plugin") }
 plugins { id("com.facebook.react.settings") }
 extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autolinkLibrariesFromCommand() }
-// If using .gradle.kts files:
-// extensions.configure<com.facebook.react.ReactSettingsExtension> { autolinkLibrariesFromCommand() }
-// Include your existing Gradle modules here.
-include(":app")
-includeBuild("../node_modules/@react-native/gradle-plugin")
+rootProject.name = 'example'
+include ':app'
+include ':react-native-capture'
+project(':react-native-capture').projectDir = new File(rootProject.projectDir, '../node_modules/react-native-capture/android')
+includeBuild('../node_modules/@react-native/gradle-plugin')

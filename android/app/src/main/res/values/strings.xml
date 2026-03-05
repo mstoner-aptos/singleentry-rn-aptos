@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">SingleEntryRN</string>
+    <string name="close_socketcam">Close</string>
 </resources>

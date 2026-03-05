@@ -1,18 +1,25 @@
 # SingleEntryRN
 
-SingleEntryRN is a very simple React Native app using the Socket Mobile React Native Capture Module.
+SingleEntryRN is a React Native sample app demonstrating how to integrate the [Socket Mobile React Native Capture SDK](https://github.com/SocketMobile/react-native-capture) (`react-native-capture` v2.x).
 
-It shows how to use the Socket Mobile CaptureJS SDK to receive the decoded data from the Socket Mobile devices into an input box.
+It shows how to:
 
-The connection state of the Socket Mobile device is shown in a status field at the top of the app.
+- Receive decoded barcode/NFC data from Socket Mobile devices
+- Discover and connect Bluetooth LE and Classic devices
+- Use **SocketCam** (camera-based scanning) on both iOS and Android
+- Read device properties (battery level, firmware version, friendly name)
+- Configure symbologies and trigger modes
+
+## Requirements
+
+- React Native 0.83+
+- Node 18+
+- `react-native-capture` ^2.0.11
 
 ## Install
 
-In a terminal window type the following commands:
-
 ```sh
-git clone git@github.com:socketmobile/singleentry-rn.git`
-
+git clone git@github.com:socketmobile/singleentry-rn.git
 cd singleentry-rn
 ```
 
@@ -28,7 +35,7 @@ Using yarn:
 yarn install
 ```
 
-then make sure the **iOS** portion of the application is setup correctly by typing the following in the terminal window.
+Then set up the iOS portion:
 
 ```sh
 cd ios
@@ -37,162 +44,218 @@ pod install
 
 ### Android
 
-When running SingleEntryRN for Android, the Socket Mobile Companion must be installed on the device.
+The Socket Mobile Companion app must be installed on the Android device. It hosts the service used for connecting to scanners.
 
-Socket Mobile Companion can be found [here](https://play.google.com/store/apps/details?id=com.socketmobile.companion&hl=en_US&gl=US "Google Play Store").
+Download it from the [Google Play Store](https://play.google.com/store/apps/details?id=com.socketmobile.companion&hl=en_US&gl=US).
 
-Use the Socket Mobile Companion to connect a Socket Mobile barcode scanner. This is a one time setup operation that does not need to get repeated unless you connect the scanner to a different host or the bonding of the scanner has been cleared.
-
-The Socket Mobile Companion must stay installed on the device as it host the service used for connecting to the scanner.
-
-The React Native Capture module checks if the service is running, and if not it will start it in the background. If the Socket Mobile Companion is not installed on the device an error `SktErrors.ESKT_UNABLEOPENDEVICE` (-27) will be returned from the initial `capture.open` call.
-The SingleEntryRN status will display a text asking if the Socket Mobile Companion is installed on the device.
+If Socket Mobile Companion is not installed, `helper.open()` will return error code `-27` (`ESKT_UNABLEOPENDEVICE`).
 
 ### iOS
 
-The easiest way to connect a Socket Mobile device is by using the Socket Mobile Companion app that can be downloaded from the App Store [here](https://apps.apple.com/us/app/socket-mobile-companion/id1175638950 "Apple App Store").
+The easiest way to connect a Socket Mobile device on iOS is by using the [Socket Mobile Companion](https://apps.apple.com/us/app/socket-mobile-companion/id1175638950) app from the App Store.
 
-## React Native Capture Module
+## Integrating the React Native Capture SDK
 
-The Socket Mobile React Native Capture Module uses the CaptureJS SDK. That is the only dependency (other than React Native itself) this module has.
+### Application Credentials
 
-This allows to use the same CaptureJS SDK for a browser webapp, than a React Native app.
+The Capture SDK requires your app to be registered on the [Socket Mobile Developer Portal](https://www.socketmobile.com/developers).
 
-The only difference in the case of a React Native App vs a Webapp using the CaptureJS SDK is the Capture Object.
+You will need three credentials:
 
-For a React Native app, Capture is instantiated by doing a `new` on `CaptureRn()` instead of simply `Capture()`.
+| Credential | Description |
+|---|---|
+| `developerId` | UUID returned during developer registration |
+| `appId` | Platform-prefixed app identifier (e.g. `ios:com.mycompany.myapp`) |
+| `appKey` | Generated when you register your app on the portal |
 
-Here is an example:
+> **Note:** The application ID is case sensitive.
 
-```javascript
-    const capture = new CaptureRn();
-    const appInfo = {
-      appId: 'web:com.socketmobile.SingleEntryRN',
-      developerId: 'bb57d8e1-f911-47ba-b510-693be162686a',
-      appKey:
-        'MC4CFQCcoE4i6nBXLRLKVkx8jwbEnzToWAIVAJdfJOE3U+5rUcrRGDLuXWpz0qgu',
-    };
-    capture
-      .open(appInfo, onCaptureEvent)
-      .then(() => {
-        setStatus('capture open success');
-      })
-      .catch(err => {
-        myLogger.error(err);
-        setStatus(`failed to open Capture: ${err}`);
-        // this is mostly for Android platform which requires
-        // Socket Mobile Companion app to be installed
-        if (err === SktErrors.ESKT_UNABLEOPENDEVICE) {
-          setStatus('Is Socket Mobile Companion app installed?');
-        }
-      });
+Define them as an `AppInfoRn` object with platform-specific values:
 
+```typescript
+import { type AppInfoRn } from 'react-native-capture';
+
+const appInfo: AppInfoRn = {
+  appIdIos: 'ios:com.mycompany.myapp',
+  appKeyIos: 'MC0C...',
+  appIdAndroid: 'android:com.mycompany.myapp',
+  appKeyAndroid: 'MC0C...',
+  developerId: 'your-developer-id-uuid',
+};
 ```
 
-The same applies when a Socket Mobile device connects to the host as shown here:
+### Opening Capture with CaptureHelper
 
-```javascript
-        ../..
-        case CaptureEventIds.DeviceArrival:
-          const newDevice = new CaptureRn();
-          const {guid, name} = e.value;
-          newDevice
-            .openDevice(guid, capture)
-            .then(result => {
-              myLogger.log('opening a device returns: ', result);
-              setStatus(`result of opening ${e.value.name} : ${result}`);
-              setDevices(prevDevices => {
-                prevDevices = prevDevices || [];
-                prevDevices.push({
-                  guid,
-                  name,
-                  handle: newDevice.clientOrDeviceHandle,
-                  device: newDevice,
-                });
-                return [...prevDevices];
-              });
-            })
-            .catch(err => {
-              myLogger.log(err);
-              setStatus(`error opening a device: ${err}`);
-            });
-          break;
-        ../..
+The v2.x SDK introduces `CaptureHelper`, an instance-based lifecycle manager that replaces the older `CaptureRn` + manual event handling pattern. You create a single instance with declarative callbacks, then call `open()` / `close()`:
+
+```typescript
+import { CaptureHelper, type CaptureHelperDevice, type DecodedData } from 'react-native-capture';
+
+const helper = new CaptureHelper({
+  appInfo,
+
+  onDeviceArrival: (device: CaptureHelperDevice) => {
+    // A Socket Mobile device has connected
+    console.log(`Connected: ${device.name}`);
+  },
+
+  onDeviceRemoval: (device: CaptureHelperDevice) => {
+    // A Socket Mobile device has disconnected
+    console.log(`Disconnected: ${device.name}`);
+  },
+
+  onDecodedData: (data: DecodedData, device: CaptureHelperDevice) => {
+    // A barcode or NFC tag was scanned
+    const text = String.fromCharCode(...(data.data as number[]));
+    console.log(`Scanned from ${device.name}: ${text}`);
+  },
+
+  onError: ({ code, message }) => {
+    console.error(`Capture error ${code}: ${message}`);
+  },
+});
+
+// Open the SDK (typically in a useEffect)
+await helper.open();
+
+// Close when done (cleanup)
+await helper.close();
 ```
 
-That is the only difference with CaptureJS, the rest of the API is exactly the same.
+In a React component, this looks like:
 
-The CaptureJS SDK documentation can be found here: [Socket online documentation](https://docs.socketmobile.com/capturejs/en/latest/ "docs.socketmobile.com")
-
-## Application Registration and Credentials
-
-The Socket Mobile Capture SDK requires the application to be registered on the Socket Mobile Developer Profile which requires a developer registration that will give a developer ID in a form of a UUID.
-
-The application can then be registered using the `web` prefix separated by a `:` (colon) followed by the application ID, i.e.: `com.socketmobile.SingleEntryRN` and by using your Socket Mobile Developer ID returned during your developer registration.
-
-  NOTE: the application ID is case sensitive.
-
-An **AppKey** is generated in return of the application registration.
-
-The Socket Mobile Developer portal can be found here: [Socket Mobile Developer Portal](https://www.socketmobile.com/developers "socketmobile.com/developers").
-
-The Developer ID, the AppID and the AppKey are the 3 arguments required to open Capture.
-
-## Receiving the Capture notifications including the decoded data
-
-When opening Capture a callback is required as argument. This is this callback that will be called by Capture each time a notification is received including the device presence (DeviceArrival and DeviceRemoval) and of course each time a Socket Mobile device has decoded some data (DecodedData).
-
-Here is an example for handling the decoded data:
-
-```javascript
-
-      const onCaptureEvent = (e, handle) => {
-        ../..
-
-        case CaptureEventIds.DecodedData:
-          const deviceSource = devices.find(d => d.handle === handle);
-          if (deviceSource) {
-            setStatus(`decoded data from: ${deviceSource.name}`);
-          }
-          lastDecodedData = {
-            data: arrayToString(e.value.data),
-            length: e.value.data.length,
-            name: e.value.name,
-          };
-          setDecodedData(lastDecodedData);
-          break;
-      }
-
+```typescript
+useEffect(() => {
+  const helper = new CaptureHelper({ appInfo, onDeviceArrival, onDecodedData, /* ... */ });
+  helper.open().then(() => setStatus('Capture open'));
+  return () => { helper.close().catch(() => {}); };
+}, []);
 ```
 
-  NOTE: The second argument of the `onCaptureEvent` callback is a handle to identify the source of the Capture event.
+### Available CaptureHelper Callbacks
 
-## Debugging on a real target device
+| Callback | Description |
+|---|---|
+| `onDeviceArrival(device)` | Device connected |
+| `onDeviceRemoval(device)` | Device disconnected |
+| `onDecodedData(data, device)` | Barcode or NFC data scanned |
+| `onSocketCamCanceled()` | User closed the SocketCam camera view |
+| `onDiscoveredDevice(device)` | BLE device found during discovery |
+| `onDiscoveryEnd()` | Bluetooth discovery completed |
+| `onBatteryLevel(level, device)` | Battery level notification (0-100) |
+| `onError({ code, message })` | An error occurred |
 
-First make sure the React Native Capture NPM package is present in `package.json` and in the `node_modules`.
+### Bluetooth LE Device Discovery
 
-You may have to delete the `node_modules` directory and perform an install again using:
+BLE devices (e.g. S721) require a manual discovery and connection flow, unlike Classic Bluetooth devices which pair at the OS level:
+
+```typescript
+import { BluetoothDiscoveryMode, type DiscoveredDeviceInfo } from 'react-native-capture';
+
+// Start BLE discovery — results arrive via onDiscoveredDevice callback
+await helper.addBluetoothDevice(BluetoothDiscoveryMode.BluetoothLowEnergy);
+
+// When the user selects a discovered device, connect it
+await helper.connectDiscoveredDevice(discoveredDevice);
+
+// To disconnect a BLE device later
+await helper.removeBleDevice(device);
+```
+
+Classic Bluetooth discovery is also available:
+
+```typescript
+await helper.addBluetoothDevice(BluetoothDiscoveryMode.BluetoothClassic);
+```
+
+### Working with Connected Devices
+
+Connected devices arrive as `CaptureHelperDevice` objects with typed methods:
+
+```typescript
+// Read device properties
+const friendlyName = await device.getFriendlyName();
+const firmware = await device.getFirmwareVersion();
+const battery = await device.getBatteryLevel();
+
+// Set device properties
+await device.setFriendlyName('My Scanner');
+await device.setTrigger(Trigger.Start);
+
+// Configure symbologies
+await device.setDataSource(CaptureDataSourceID.SymbologyQRCode, CaptureDataSourceStatus.Enable);
+```
+
+### SocketCam (Camera-Based Scanning)
+
+SocketCam lets users scan barcodes using the device camera. Enable it through the helper:
+
+```typescript
+await helper.setSocketCamEnabled(true);
+```
+
+Then use the `SocketCamViewContainer` component to display the camera UI. Access the underlying `CaptureRn` instance via `helper.rootCapture`:
+
+```typescript
+import { SocketCamViewContainer, Trigger } from 'react-native-capture';
+
+const rootCapture = helper.rootCapture;
+
+<SocketCamViewContainer
+  openSocketCamView={showCamera}
+  socketCamCapture={rootCapture}
+  socketCamDevice={socketCamDevice}
+  clientOrDeviceHandle={rootCapture?.clientOrDeviceHandle}
+  triggerType={Trigger.Start}
+  handleSetSocketCamEnabled={setSocketCamEnabled}
+  handleSetStatus={setStatus}
+  handleSetSocketCamExtensionStatus={setExtStatus}
+/>
+```
+
+> **Android note:** Mount `SocketCamViewContainer` as soon as `rootCapture` is available (before enabling SocketCam) so the extension process starts. Without this, `setSocketCamEnabled` may return error `-32` (`ESKT_NOTAVAILABLE`).
+
+## App Structure
+
+| File | Description |
+|---|---|
+| `src/App.tsx` | Main component — opens CaptureHelper, manages state |
+| `src/components/MainView.tsx` | Device list, BLE/Classic discovery, SocketCam toggle |
+| `src/components/DeviceFeatures.tsx` | Feature menu for a selected device |
+| `src/components/SetTrigger.tsx` | Trigger modes (start, stop, continuous) and SocketCam camera views |
+| `src/components/Symbologies.tsx` | Enable/disable barcode symbologies and NFC tag types |
+| `src/components/FriendlyName.tsx` | Get/set the device friendly name |
+| `src/components/BatteryLevel.tsx` | Read battery level and power state |
+| `src/components/FirmwareVersion.tsx` | Read firmware version and build date |
+
+## Running the App
+
+Make sure Metro is running before launching:
 
 ```sh
-npm install
+yarn start
 ```
 
-or:
+Then in a separate terminal:
 
 ```sh
-yarn install
+yarn ios
+# or
+yarn android
 ```
 
-Then make sure **Metro** is running before launching the app especially if you want to run the application in debug.
-For that, go to the project root and run metro:
-`cd  singleentry-rn`
-`yarn start`
-
-Then either `yarn android` or `yarn ios` OR you can run it through Xcode. 
+You can also run the app through Xcode or Android Studio.
 
 ### Android Debugging
 
-In an Android environment in order to have the Android device being able to reach the Metro bundler, you need to reverse proxy the port 8081 and this can be achieved by typing the following command in a terminal window:
-`adb reverse tcp:8081 tcp:8081`
+To allow the Android device to reach the Metro bundler:
 
-Usually this command prints out `8081` when it succeeds.
+```sh
+adb reverse tcp:8081 tcp:8081
+```
+
+## Resources
+
+- [react-native-capture on GitHub](https://github.com/SocketMobile/react-native-capture)
+- [CaptureJS SDK Documentation](https://docs.socketmobile.com/capturejs/en/latest/)
+- [Socket Mobile Developer Portal](https://www.socketmobile.com/developers)

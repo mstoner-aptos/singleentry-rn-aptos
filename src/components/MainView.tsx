@@ -1,217 +1,175 @@
-import React, {useState} from 'react';
-import {TextInput, Button, Text, View, StyleSheet, Platform} from 'react-native';
+import React from 'react';
 import {
-  CaptureProperty,
-  CapturePropertyTypes,
-  CapturePropertyIds,
-  type CaptureDeviceInfo,
-  CaptureRn,
-  CaptureDataSourceID,
-  CaptureDataSourceFlags,
-  CaptureDataSourceStatus,
+  Text,
+  View,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+} from 'react-native';
+import {
+  type CaptureHelperDevice,
+  type DiscoveredDeviceInfo,
+  SocketCamTypes,
 } from 'react-native-capture';
-import { CaptureDeviceTypeInterface } from 'socketmobile-capturejs/lib/gen/deviceTypes';
 
 interface MainViewProps {
-  deviceCapture: CaptureRn | null;
-  setStatus: (status: string) => void;
-  myLogger: any;
-  devices: CaptureDeviceInfo[];
+  devices: CaptureHelperDevice[];
+  bleDiscovery: () => void;
+  classicDiscovery: () => void;
+  onDisconnectDevice: (device: CaptureHelperDevice) => void;
+  onSelectDevice: (device: CaptureHelperDevice) => void;
+  discoveredDevices: DiscoveredDeviceInfo[];
+  onConnectDevice: (device: DiscoveredDeviceInfo) => void;
+  isAndroid?: boolean;
+  socketCamEnabled?: boolean;
+  onToggleSocketCam?: () => void;
 }
 
 const MainView: React.FC<MainViewProps> = ({
-  deviceCapture,
-  setStatus,
-  myLogger,
   devices,
+  bleDiscovery,
+  classicDiscovery,
+  onDisconnectDevice,
+  onSelectDevice,
+  discoveredDevices,
+  onConnectDevice,
+  isAndroid,
+  socketCamEnabled,
+  onToggleSocketCam,
 }) => {
-  const [newName, setNewName] = useState<string>('');
-  const [batteryLevel, setBatteryLevel] = useState<string>('0%');
-
-  const getFriendlyName = async () => {
-    let property = new CaptureProperty(
-      CapturePropertyIds.FriendlyNameDevice,
-      CapturePropertyTypes.None,
-      {},
-    );
-
-    try {
-      let device = devices.find((device) => device.handle === deviceCapture!.clientOrDeviceHandle) as CaptureDeviceInfo;
-      let data = await device.devCapture.getProperty(property);
-      myLogger.log(JSON.stringify(data.value));
-      setStatus(`successfully retrieved friendly name: '${data.value}' `);
-    } catch (res: any) {
-      let {code, message} = res.error;
-      let str = `${code} : ${message}`;
-      myLogger.error(str);
-      setStatus(`failed to get friendlyName: ${str}`);
-    }
-  };
-
-  const setFriendlyName = async () => {
-    let property = new CaptureProperty(
-      CapturePropertyIds.FriendlyNameDevice,
-      CapturePropertyTypes.String,
-      newName,
-    );
-
-    try {
-      let device = devices.find((device) => device.handle === deviceCapture!.clientOrDeviceHandle) as CaptureDeviceInfo;
-      let data = await device.devCapture.setProperty(property);
-      myLogger.log(JSON.stringify(data.value));
-      setStatus(`successfully changed friendly name: '${newName}' `);
-    } catch (res: any) {
-      let {code, message} = res.error;
-      myLogger.error(`${code} : ${message}`);
-      setStatus(`failed to set friendlyName: ${code} : ${message}`);
-    }
-
-    setNewName('');
-  };
-
-  const getBatteryLevel = async () => {
-    let property = new CaptureProperty(
-      CapturePropertyIds.BatteryLevelDevice,
-      CapturePropertyTypes.None,
-      {},
-    );
-
-    try {
-      let device = devices.find((device) => device.handle === deviceCapture!.clientOrDeviceHandle) as CaptureDeviceInfo;
-      let data = await device.devCapture.getProperty(property);
-      let val = handleBatteryConversion(data);
-      setStatus(`Successfully retrieved battery level: ${val}%`);
-      setBatteryLevel(`${val}%`);
-    } catch (err: any) {
-      myLogger.error(`${err.code} : ${err.message}`);
-      setStatus(`failed to get battery level: ${err.code} : ${err.message}`);
-    }
-  };
-
-  const handleBatteryConversion = (data: any) => {
-    let device = devices.find((device) => device.handle === deviceCapture!.clientOrDeviceHandle) as CaptureDeviceInfo;
-    let deviceTypeInterface = (device.type >> 16) & 0xff;
-    if (deviceTypeInterface == CaptureDeviceTypeInterface.Ble) {
-      if (Platform.OS === 'ios') {
-        return (data.value & 0xff00) >> 8;
-      } else {
-        return data.value;
-      }
-    } else {
-      return (data.value & 0xff00) >> 8;
-    }
-  };
-
-  const getSymbologyStatus = async () => {
-    let property = new CaptureProperty(
-      CapturePropertyIds.DataSourceDevice,
-      CapturePropertyTypes.DataSource,
-      {
-        id: CaptureDataSourceID.SymbologyEan13,
-        flags: CaptureDataSourceFlags.Status,
-      },
-    );
-    try {
-      let device = devices.find((device) => device.handle === deviceCapture!.clientOrDeviceHandle) as CaptureDeviceInfo;
-      let data = await device.devCapture.getProperty(property);
-      myLogger.log(JSON.stringify(data));
-      setStatus('successfully retrieved symbology!');
-    } catch (res: any) {
-      let {code, message} = res.error;
-      myLogger.error(`${code} : ${message}`);
-      setStatus(`failed to set symbology: ${code} : ${message}`);
-    }
-  };
-
-  const setSymbology = async () => {
-    let property = new CaptureProperty(
-      CapturePropertyIds.DataSourceDevice,
-      CapturePropertyTypes.DataSource,
-      {
-        id: CaptureDataSourceID.SymbologyEan13,
-        flags: CaptureDataSourceFlags.Status,
-        status: CaptureDataSourceStatus.Enable, // use CaptureDataSourceStatus.Disable to disable it
-      },
-    );
-
-    try {
-      let device = devices.find((device) => device.handle === deviceCapture!.clientOrDeviceHandle) as CaptureDeviceInfo;
-      let data = await device.devCapture.setProperty(property);
-      myLogger.log(JSON.stringify(data));
-      setStatus('successfully set symbology!');
-    } catch (res: any) {
-      let {code, message} = res.error;
-      myLogger.error(`${code} : ${message}`);
-      setStatus(`failed to set symbology: ${code} : ${message}`);
-    }
-  };
+  const isSocketCam = (device: CaptureHelperDevice) =>
+    SocketCamTypes.indexOf(device.type) > -1;
 
   return (
-    <View>
-      <>
-        <Button
-          title="get symbology"
-          onPress={getSymbologyStatus}
-          disabled={deviceCapture === null}
-        />
-        <Button
-          title="set symbology"
-          onPress={setSymbology}
-          disabled={deviceCapture === null}
-        />
-        <Button
-          title="Get Friendly Name"
-          onPress={getFriendlyName}
-          disabled={deviceCapture === null}
-        />
-        {deviceCapture ? (
-          <TextInput
-            style={{...mainStyles.input, padding: 10, width: 200}}
-            onChangeText={(val) => setNewName(val)}
-            value={newName}
-            placeholder="new name"
-          />
-        ) : (
-          <Text style={{padding: 5, textAlign: 'center'}}>
-            Please connect a physical device to get/set properties
-          </Text>
+    <View style={styles.container}>
+      <View style={styles.buttonRow}>
+        <TouchableOpacity style={styles.addButton} onPress={bleDiscovery}>
+          <Text style={styles.addButtonText}>Add BLE device</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.addButton} onPress={classicDiscovery}>
+          <Text style={styles.addButtonText}>Add Classic device</Text>
+        </TouchableOpacity>
+        {isAndroid && onToggleSocketCam && (
+          <TouchableOpacity style={styles.addButton} onPress={onToggleSocketCam}>
+            <Text style={styles.addButtonText}>
+              {socketCamEnabled ? 'Disable SocketCam' : 'Enable SocketCam'}
+            </Text>
+          </TouchableOpacity>
         )}
-        <Button
-          title="Set Friendly Name"
-          onPress={setFriendlyName}
-          disabled={!deviceCapture || newName.length === 0}
-        />
-      </>
-      <>
-        <Button
-          title="Get Battery Level"
-          onPress={getBatteryLevel}
-          disabled={deviceCapture === null}
-        />
-        {deviceCapture ? <Text>Battery Level: {batteryLevel}</Text> : null}
-      </>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionHeader}>Connected Devices</Text>
+        <View style={styles.sectionDivider} />
+        {devices.map(device => (
+          <TouchableOpacity
+            key={device.guid}
+            style={styles.deviceItem}
+            onPress={() => onSelectDevice(device)}>
+            <Text style={styles.deviceName}>{device.name}</Text>
+            {!isSocketCam(device) && (
+              <TouchableOpacity onPress={() => onDisconnectDevice(device)}>
+                <Text style={styles.disconnectText}>Disconnect</Text>
+              </TouchableOpacity>
+            )}
+            <View style={styles.itemDivider} />
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {discoveredDevices.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionHeader}>
+            Discovered Devices ({discoveredDevices.length})
+          </Text>
+          <View style={styles.sectionDivider} />
+          <ScrollView style={styles.discoveryList}>
+            {discoveredDevices.map(device => (
+              <TouchableOpacity
+                key={device.identifierUuid}
+                style={styles.deviceItem}
+                onPress={() => onConnectDevice(device)}>
+                <Text style={styles.deviceName}>
+                  {device.name || 'Unknown device'}
+                </Text>
+                <Text style={styles.connectText}>Connect</Text>
+                <View style={styles.itemDivider} />
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
     </View>
   );
 };
 
-const mainStyles = StyleSheet.create({
+const styles = StyleSheet.create({
   container: {
     flex: 1,
+    paddingHorizontal: 16,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 32,
+  },
+  addButton: {
+    flex: 1,
+    backgroundColor: '#2979FF',
+    paddingVertical: 18,
+    borderRadius: 8,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  title: {
-    fontWeight: 'bold',
-    fontSize: 20,
+  addButtonText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '500',
+    textAlign: 'center',
   },
-  status: {
-    padding: 15,
+  section: {
+    marginBottom: 24,
   },
-  input: {
-    width: '80%',
-    height: 40,
-    borderWidth: 1,
-    color: 'black',
-    fontSize: 10,
+  sectionHeader: {
+    color: '#888',
+    fontSize: 13,
+    marginBottom: 6,
+    paddingHorizontal: 2,
+  },
+  sectionDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#333',
+    marginBottom: 2,
+  },
+  deviceItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 2,
+  },
+  deviceName: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 16,
+  },
+  disconnectText: {
+    color: '#007AFF',
+    fontSize: 16,
+  },
+  connectText: {
+    color: '#007AFF',
+    fontSize: 16,
+  },
+  itemDivider: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#333',
+  },
+  discoveryList: {
+    maxHeight: 200,
   },
 });
 
