@@ -93,8 +93,12 @@ const App = () => {
           length: data.length,
           name: data.name,
         });
+        // disable the trigger button to prevent multiple scans while processing business flow
         await device.setTrigger(Trigger.Disable);
-        await device.setTrigger(Trigger.Enable);
+        // pretend the app flow takes around 200ms, then let the scanner button be enabled again
+        setTimeout(async () => {
+          await device.setTrigger(Trigger.Enable);
+        }, 200);
       },
 
       // result -91 (ESKT_CANCEL): user pressed the close button on the SocketCam native view
@@ -173,14 +177,12 @@ const App = () => {
       ) {
         console.log('App has gone to the background!');
         console.log('devices', devicesRef.current);
-        devicesRef.current.forEach(device => {
-          console.log('disabling trigger for device', device.name);
-          device.setTrigger(Trigger.Disable).catch(err => {
-            console.error('error disabling trigger:', err?.error?.code);
-          });
+        // disable scanner triggers to prevent scan light and scans while app is in background
+        Promise.all(
+          devicesRef.current.map(device => device.setTrigger(Trigger.Disable)),
+        ).catch(err => {
+          console.error('error disabling trigger:', err?.error?.code);
         });
-        helperRef.current?.close().catch(() => {});
-        console.log('closed SDK');
       }
       appState.current = nextAppState;
     });
