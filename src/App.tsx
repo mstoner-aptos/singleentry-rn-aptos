@@ -56,6 +56,8 @@ const App = () => {
   const [socketCamEnabled, setSocketCamEnabled] = useState<boolean>(false);
   // useRef so the callback closure created in useEffect([]) always reads the current value
   const isContinuousScanRef = useRef(false);
+  // Same for AppState listener (empty deps): always read latest devices when backgrounding
+  const devicesRef = useRef<CaptureHelperDevice[]>([]);
 
   // useRef so the helper instance survives re-renders without causing them
   const helperRef = useRef<CaptureHelper | null>(null);
@@ -138,6 +140,10 @@ const App = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    devicesRef.current = devices;
+  }, [devices]);
+
   // Here is the lifecycle event handler for the app state - it creates the CaptureHelper or calls close()
   // to destroy it based on the background vs foreground. NOTE: it will not fire at launch - only when state
   // changes from background to foreground and vice versa, which is by design
@@ -166,6 +172,13 @@ const App = () => {
         nextAppState === 'background'
       ) {
         console.log('App has gone to the background!');
+        console.log('devices', devicesRef.current);
+        devicesRef.current.forEach(device => {
+          console.log('disabling trigger for device', device.name);
+          device.setTrigger(Trigger.Disable).catch(err => {
+            console.error('error disabling trigger:', err?.error?.code);
+          });
+        });
         helperRef.current?.close().catch(() => {});
         console.log('closed SDK');
       }
