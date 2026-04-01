@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, {useState, useEffect, useRef} from 'react';
 
 import {
   SafeAreaView,
@@ -8,6 +8,7 @@ import {
   TextInput,
   Platform,
   TouchableOpacity,
+  AppState,
 } from 'react-native';
 
 import {
@@ -39,8 +40,11 @@ const appInfo: AppInfoRn = {
 
 const App = () => {
   const [devices, setDevices] = useState<CaptureHelperDevice[]>([]);
-  const [discoveredDevices, setDiscoveredDevices] = useState<DiscoveredDeviceInfo[]>([]);
-  const [selectedDevice, setSelectedDevice] = useState<CaptureHelperDevice | null>(null);
+  const [discoveredDevices, setDiscoveredDevices] = useState<
+    DiscoveredDeviceInfo[]
+  >([]);
+  const [selectedDevice, setSelectedDevice] =
+    useState<CaptureHelperDevice | null>(null);
   const [status, setStatus] = useState<string>('Opening Capture...');
   const [decodedData, setDecodedData] = useState<DecodedData>({
     data: '',
@@ -55,22 +59,26 @@ const App = () => {
 
   // useRef so the helper instance survives re-renders without causing them
   const helperRef = useRef<CaptureHelper | null>(null);
-
-  useEffect(() => {
+  const appState = useRef(AppState.currentState);
+  // Added a helper do do teh create process since this will be done at launch and after closing the SDK from lifecycle events
+  const createHelper = (): CaptureHelper => {
     const helper = new CaptureHelper({
       appInfo,
 
-      onDeviceArrival: (device) => {
+      onDeviceArrival: device => {
+        console.log('device arrived', device);
         setDevices(d => [...d, device]);
         // Remove from discovered list once the device is fully connected
         setDiscoveredDevices(d => d.filter(dd => dd.name !== device.name));
       },
 
-      onDeviceRemoval: (device) => {
+      onDeviceRemoval: device => {
+        console.log('device removed', device);
         setDevices(d => d.filter(dd => dd.guid !== device.guid));
       },
 
-      onDecodedData: (data, device) => {
+      onDecodedData: async (data, device) => {
+        console.log('decoded data', data, device);
         if (SocketCamTypes.indexOf(device.type) > -1) {
           // Only close the view for Trigger.Start; Trigger.ContinuousScan keeps it open
           // so the user can keep scanning or close it programmatically / via the close button
@@ -83,6 +91,8 @@ const App = () => {
           length: data.length,
           name: data.name,
         });
+        await device.setTrigger(Trigger.Disable);
+        await device.setTrigger(Trigger.Enable);
       },
 
       // result -91 (ESKT_CANCEL): user pressed the close button on the SocketCam native view
@@ -91,7 +101,7 @@ const App = () => {
         setOpenSocketCamView(false);
       },
 
-      onDiscoveredDevice: (device) => {
+      onDiscoveredDevice: device => {
         setDiscoveredDevices(d => {
           if (d.find(dd => dd.identifierUuid === device.identifierUuid)) {
             return d;
@@ -102,14 +112,17 @@ const App = () => {
 
       onDiscoveryEnd: () => setStatus('Discovery ended'),
 
-      onBatteryLevel: (level) => setStatus(`Battery: ${level}%`),
+      onBatteryLevel: level => setStatus(`Battery: ${level}%`),
 
-      onError: ({ code, message }) =>
-        setStatus(`Error ${code}: ${message}`),
+      onError: ({code, message}) => setStatus(`Error ${code}: ${message}`),
     });
 
-    helperRef.current = helper;
+    return helper;
+  };
 
+  useEffect(() => {
+    const helper = createHelper();
+    helperRef.current = helper;
     helper
       .open()
       .then(() => setStatus('CaptureSDK open with success'))
@@ -122,7 +135,46 @@ const App = () => {
     return () => {
       helper.close().catch(() => {});
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Here is the lifecycle event handler for the app state - it creates the CaptureHelper or calls close()
+  // to destroy it based on the background vs foreground. NOTE: it will not fire at launch - only when state
+  // changes from background to foreground and vice versa, which is by design
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (
+        appState.current.match(/inactive|background/) &&
+        nextAppState === 'active'
+      ) {
+        console.log('App has come to the foreground!');
+        const helper = createHelper();
+        helperRef.current = helper;
+        helper
+          .open()
+          .then(() => {
+            setStatus('CaptureSDK open with success');
+            console.log('opened SDK');
+          })
+          .catch((err: any) => {
+            const code = err?.code ?? err?.error?.code;
+            const message = err?.message ?? err?.error?.message;
+            setStatus(`Failed to open CaptureSDK: ${code}: ${message}`);
+          });
+      } else if (
+        appState.current.match(/active/) &&
+        nextAppState === 'background'
+      ) {
+        console.log('App has gone to the background!');
+        helperRef.current?.close().catch(() => {});
+        console.log('closed SDK');
+      }
+      appState.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
   }, []);
 
   // ─── Actions ───────────────────────────────────────────────────────────────
@@ -142,7 +194,9 @@ const App = () => {
   const launchBluetoothLeDiscovery = async () => {
     setDiscoveredDevices([]);
     try {
-      await helperRef.current?.addBluetoothDevice(BluetoothDiscoveryMode.BluetoothLowEnergy);
+      await helperRef.current?.addBluetoothDevice(
+        BluetoothDiscoveryMode.BluetoothLowEnergy,
+      );
       setStatus('Scanning for BLE devices...');
     } catch {
       setStatus('BLE scan failed');
@@ -152,7 +206,9 @@ const App = () => {
   const launchClassicDiscovery = async () => {
     setDiscoveredDevices([]);
     try {
-      await helperRef.current?.addBluetoothDevice(BluetoothDiscoveryMode.BluetoothClassic);
+      await helperRef.current?.addBluetoothDevice(
+        BluetoothDiscoveryMode.BluetoothClassic,
+      );
       setStatus('Scanning for Classic devices...');
     } catch {
       setStatus('Classic scan failed');
@@ -186,7 +242,8 @@ const App = () => {
   const rootCapture = helperRef.current?.rootCapture ?? undefined;
 
   // The SocketCam virtual device, if present (arrives after setSocketCamEnabled(true))
-  const socketCamDevice = devices.find(d => SocketCamTypes.indexOf(d.type) > -1) ?? null;
+  const socketCamDevice =
+    devices.find(d => SocketCamTypes.indexOf(d.type) > -1) ?? null;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -201,11 +258,7 @@ const App = () => {
         <Text style={styles.decodedLabel}>Decoded data</Text>
         <TextInput
           style={styles.input}
-          value={
-            decodedData.data
-              ? `${decodedData.data}`
-              : ''
-          }
+          value={decodedData.data ? `${decodedData.data}` : ''}
           placeholder="Scan a barcode..."
           placeholderTextColor="#555"
           editable={false}
@@ -223,7 +276,9 @@ const App = () => {
             setStatus={setStatus}
             openSocketCamView={openSocketCamView}
             setOpenSocketCamView={setOpenSocketCamView}
-            handleIsContinuous={(v) => { isContinuousScanRef.current = v; }}
+            handleIsContinuous={v => {
+              isContinuousScanRef.current = v;
+            }}
           />
         ) : (
           <MainView
@@ -263,7 +318,9 @@ const App = () => {
       )}
 
       <View style={styles.statusBar}>
-        <Text style={styles.statusText} numberOfLines={1}>{status}</Text>
+        <Text style={styles.statusText} numberOfLines={1}>
+          {status}
+        </Text>
       </View>
     </SafeAreaView>
   );
