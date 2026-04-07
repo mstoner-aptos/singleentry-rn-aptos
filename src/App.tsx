@@ -179,7 +179,9 @@ const App = () => {
         console.log('devices', devicesRef.current);
         // disable scanner triggers to prevent scan light and scans while app is in background
         Promise.all(
-          devicesRef.current.map(device => device.setTrigger(Trigger.Disable)),
+          devicesRef.current
+            .filter(device => SocketCamTypes.indexOf(device.type) === -1)
+            .map(device => device.setTrigger(Trigger.Disable)),
         ).catch(err => {
           console.error('error disabling trigger:', err?.error?.code);
         });
